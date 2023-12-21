@@ -1,0 +1,68 @@
+<ServerManagerConfiguration>
+  <ProxyGroup name="sources">
+    <SourceProxy name="SalvusHDF5Reader" class="vtkSalvusHDF5Reader" label="Salvus HDF5 reader">
+    <Documentation>
+	   short_help="Reads an HDF5 file"
+       long_help="Reads an HDF5 file">
+       This reader reads HDF5 files, and the output is an Unstructured Grid.
+	</Documentation>
+     <StringVectorProperty animateable="0"
+        name="FileName"
+        command="SetFileName"
+        number_of_elements="1">
+        <FileListDomain name="files"/>
+     </StringVectorProperty>
+
+     <StringVectorProperty
+        name="PointArrayInfo"
+        information_only="1">
+        <ArraySelectionInformationHelper attribute_name="Point"/>
+     </StringVectorProperty>
+
+     <StringVectorProperty
+        name="PointArrayStatus"
+        command="SetPointArrayStatus"
+        number_of_elements="0"
+        repeat_command="1"
+        number_of_elements_per_command="2"
+        element_types="2 0"
+        information_property="PointArrayInfo"
+        label="Point Arrays">>
+       <ArraySelectionDomain name="array_list">
+          <RequiredProperties>
+             <Property name="PointArrayInfo" function="ArrayList"/>
+          </RequiredProperties>
+       </ArraySelectionDomain>
+     </StringVectorProperty>
+
+	<DoubleVectorProperty
+	name="TimestepValues"
+        repeatable="1"
+	information_only="1">
+	<TimeStepsInformationHelper/>
+	<Documentation>
+		Available timestep values.
+	</Documentation>
+	</DoubleVectorProperty>
+
+<IntVectorProperty
+    name="ModelName"
+    command="SetModelName"
+    number_of_elements="1"
+    default_values="0">
+  <EnumerationDomain name="enum">
+    <Entry value="0" text="ELASTIC"/>
+    <Entry value="1" text="ACOUSTIC"/>
+  </EnumerationDomain>
+  <Documentation>
+    This property indicates which model mesh will be read.
+  </Documentation>
+</IntVectorProperty>
+
+     <Hints>
+       <ReaderFactory extensions="h5"
+                      file_description="Salvus HDF5 Files" />
+     </Hints>
+   </SourceProxy>
+  </ProxyGroup>
+</ServerManagerConfiguration>	

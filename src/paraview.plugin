@@ -1,0 +1,8 @@
+NAME
+  pvSalvusHDF5Reader
+DESCRIPTION
+  Reader for visualization of Salvus HDF5 data
+REQUIRES_MODULES
+  VTK::CommonCore
+  VTK::CommonExecutionModel
+  VTK::hdf5

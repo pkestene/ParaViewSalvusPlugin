@@ -1,0 +1,12 @@
+NAME
+  SalvusHDF5Reader
+LIBRARY_NAME
+  SalvusHDF5Reader
+DEPENDS
+  VTK::CommonCore
+  VTK::CommonDataModel
+  VTK::CommonExecutionModel
+  VTK::CommonMisc
+PRIVATE_DEPENDS
+  VTK::hdf5
+  VTK::mpi
