@@ -131,8 +131,8 @@ vtkSalvusHDF5Reader::~vtkSalvusHDF5Reader()
   this->ACOUSTIC_PointDataArraySelection = nullptr;
 }
 
-static string Elastic_varnames[] = {"stress_xx", "stress_yy", "stress_zz", "stress_yz", "stress_xz", "stress_xy"};
-static string Acoustic_varnames[] = {"phi_tt"};
+static std::vector<string> Elastic_varnames = {"stress_xx", "stress_yy", "stress_zz", "stress_yz", "stress_xz", "stress_xy"};
+static std::vector<string> Acoustic_varnames = {"phi_tt"};
 
 int vtkSalvusHDF5Reader::RequestInformation(
                          vtkInformation *vtkNotUsed(request),
@@ -509,12 +509,12 @@ int vtkSalvusHDF5Reader::RequestData(
   H5Sselect_hyperslab(dataspace, H5S_SELECT_SET, offset, NULL, count, NULL);
 
   if(numPieces == 1)
-  {
+    {
     H5Dread(coords_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT,
             static_cast<vtkFloatArray *>(coords)->GetPointer(0));
-  }
+    }
   else
-  {
+    {
     H5Dread(coords_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT,
             static_cast<vtkFloatArray *>(coords0)->GetPointer(0));
 
@@ -524,7 +524,7 @@ int vtkSalvusHDF5Reader::RequestData(
            sizeof(float) * 3 * (maxId - minId + 1)
           );
     coords0->FastDelete();
-  }
+    }
   H5Dclose(coords_id);
   H5Sclose(memspace);
   vtkPoints *points = vtkPoints::New();
@@ -538,11 +538,15 @@ int vtkSalvusHDF5Reader::RequestData(
 
   this->UpdateProgress(0.70);
 
-  vtkFloatArray *data0;
-
+  float *data0 = nullptr;
+  if((numPieces > 1) && (data0 == nullptr))
+    {
+    data0 = new float[this->NbNodes]; // temporary storage
+    cerr << "allocating data0 of size " << this->NbNodes << std::endl;
+    }
   if(this->ModelName == 0) // Elastic
   {
-    for(int i=0; i <6; i++)
+    for(int i=0; i < Elastic_varnames.size(); i++)
     {
       if(GetPointArrayStatus(Elastic_varnames[i].c_str())) // is variable enabled to be read?
       {
@@ -550,7 +554,7 @@ int vtkSalvusHDF5Reader::RequestData(
         data->SetNumberOfComponents(1);
         data->SetNumberOfTuples(MyNumber_of_Nodes);
         data->SetName(Elastic_varnames[i].c_str());
-    
+
         count[0] = this->NbNodes;
         count[1] = 1;
         memspace = H5Screate_simple(2, count, NULL);
@@ -567,24 +571,34 @@ int vtkSalvusHDF5Reader::RequestData(
         count[3] = 125;
         offset[0] = this->ActualTimeStep;
         offset[1] = 0;
-        offset[2] = 0;
+        offset[2] = i;
         offset[3] = 0;
         dataspace = H5Dget_space(data_id);
         H5Sselect_hyperslab(dataspace, H5S_SELECT_SET, offset, NULL, count, NULL);
 
         if(numPieces == 1)
-        {
+          {
           H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT,
             static_cast<vtkFloatArray *>(data)->GetPointer(0));
-          output->GetPointData()->AddArray(data);
-          data->FastDelete();
-        }
+          }
+        else
+          {
+          H5Dread(coords_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT, data0);
+          cerr << "reading into data0 of size " << this->NbNodes << std::endl;
+          // void *memcpy(void *dest, const void *src, size_t n);
+          memcpy(static_cast<vtkFloatArray *>(data)->GetPointer(0),
+                 &data0[minId*3], 
+                 sizeof(float) * (maxId - minId + 1));
+          cerr << "copy-ing into data of size " << maxId - minId + 1 << std::endl;
+          }
+        output->GetPointData()->AddArray(data);
+        data->FastDelete();
       }
     }
   }
   else // Acoustic
   {
-    for(int i=0; i < 1; i++)
+    for(int i=0; i < Acoustic_varnames.size(); i++)
     {
       if(GetPointArrayStatus(Acoustic_varnames[i].c_str())) // is variable enabled to be read?
       {
@@ -609,7 +623,7 @@ int vtkSalvusHDF5Reader::RequestData(
         count[3] = 125;
         offset[0] = this->ActualTimeStep;
         offset[1] = 0;
-        offset[2] = 0;
+        offset[2] = i;
         offset[3] = 0;
         dataspace = H5Dget_space(data_id);
         H5Sselect_hyperslab(dataspace, H5S_SELECT_SET, offset, NULL, count, NULL);
@@ -623,6 +637,11 @@ int vtkSalvusHDF5Reader::RequestData(
         }
       }
     }
+  }
+  if((numPieces > 1) && (data0 != nullptr))
+  {
+    delete [] data0;
+    cerr << "deleting data0" << std::endl;
   }
   H5Dclose(data_id);
   H5Gclose(volume_id);
