@@ -43,6 +43,7 @@ vtkIOSalvusCxxTests(int argc, char **argv)
   vtkNew<vtkSalvusHDF5Reader> reader;
   reader->DebugOff();
   reader->SetFileName(filein.c_str());
+  reader->SetModelName(0);
   reader->UpdateInformation();
   
   for(auto i=0; i < reader->GetNumberOfPointArrays(); i++)

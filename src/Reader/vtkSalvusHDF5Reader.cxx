@@ -112,8 +112,12 @@ vtkSalvusHDF5Reader::vtkSalvusHDF5Reader()
   this->DebugOff();
   this->SetNumberOfInputPorts(0);
   this->SetNumberOfOutputPorts(1);
-  this->PointDataArraySelection = vtkDataArraySelection::New();
-  this->NumLoadSteps = 0;
+  this->ELASTIC_PointDataArraySelection = vtkDataArraySelection::New();
+  this->ACOUSTIC_PointDataArraySelection = vtkDataArraySelection::New();
+  this->NumberOfTimeSteps = 0;
+  this->TimeStep = 0;
+  this->ActualTimeStep = 0;
+  this->TimeStepTolerance = 1E-6;
 }
  
 vtkSalvusHDF5Reader::~vtkSalvusHDF5Reader()
@@ -121,10 +125,14 @@ vtkSalvusHDF5Reader::~vtkSalvusHDF5Reader()
   vtkDebugMacro(<< "cleaning up inside destructor");
   if (this->FileName)
     delete [] this->FileName;
-  this->PointDataArraySelection->Delete();
+  this->ELASTIC_PointDataArraySelection->Delete();
+  this->ELASTIC_PointDataArraySelection = nullptr;
+  this->ACOUSTIC_PointDataArraySelection->Delete();
+  this->ACOUSTIC_PointDataArraySelection = nullptr;
 }
 
-static string varnames[] = {"phi_tt", "stress_xx", "stress_yy", "stress_zz", "stress_yz", "stress_xz", "stress_xy"};
+static string Elastic_varnames[] = {"stress_xx", "stress_yy", "stress_zz", "stress_yz", "stress_xz", "stress_xy"};
+static string Acoustic_varnames[] = {"phi_tt"};
 
 int vtkSalvusHDF5Reader::RequestInformation(
                          vtkInformation *vtkNotUsed(request),
@@ -188,7 +196,7 @@ int vtkSalvusHDF5Reader::RequestInformation(
         filespace0 = H5Dget_space(stress_id);
         H5Sget_simple_extent_dims(filespace0, dimsf, NULL);
         H5Sclose(filespace0);
-        this->NumLoadSteps = dimsf[0];
+        this->NumberOfTimeSteps = dimsf[0];
         H5Dclose(stress_id);
       }
       else if(H5Lexists(volume_id, "phi_tt", H5P_DEFAULT))
@@ -197,25 +205,25 @@ int vtkSalvusHDF5Reader::RequestInformation(
         filespace0 = H5Dget_space(phi_tt_id);
         H5Sget_simple_extent_dims(filespace0, dimsf, NULL);
         H5Sclose(filespace0);
-        this->NumLoadSteps = dimsf[0];
+        this->NumberOfTimeSteps = dimsf[0];
         H5Dclose(phi_tt_id);
       }
-      for(auto varn : varnames)
-        this->PointDataArraySelection->AddArray(varn.c_str());
-      LoadStepScalingFactors = (double*)malloc(this->NumLoadSteps * sizeof(double));
-      for(int i=0; i < NumLoadSteps; i++)
-        LoadStepScalingFactors[i] = t_start + i * (dt);
+      for(auto varn : Elastic_varnames)
+        this->ELASTIC_PointDataArraySelection->AddArray(varn.c_str());
+      for(auto varn : Acoustic_varnames)
+        this->ACOUSTIC_PointDataArraySelection->AddArray(varn.c_str());
+
+      this->TimeStepValues.assign(this->NumberOfTimeSteps, 0.0);
+      for(int i=0; i < NumberOfTimeSteps; i++)
+        this->TimeStepValues[i] = t_start + i * (dt);
       
       double timeRange[2];
-      timeRange[0]=LoadStepScalingFactors[0];
-      timeRange[1]=LoadStepScalingFactors[NumLoadSteps-1];
+      timeRange[0] = this->TimeStepValues.front();
+      timeRange[1] = this->TimeStepValues.back();
 
       outInfo->Set(vtkStreamingDemandDrivenPipeline::TIME_RANGE(), timeRange, 2);
-      for(int i=0; i < NumLoadSteps; i++)
-      {
-        outInfo->Append(vtkStreamingDemandDrivenPipeline::TIME_STEPS(), LoadStepScalingFactors[i]);
-        cout << "TimeStep "  << i << " = " << LoadStepScalingFactors[i] << endl;
-      }
+      outInfo->Set(vtkStreamingDemandDrivenPipeline::TIME_STEPS(), this->TimeStepValues.data(),
+                   static_cast<int>(this->TimeStepValues.size()));
     }
     H5Gclose(volume_id);
     }
@@ -256,26 +264,25 @@ int vtkSalvusHDF5Reader::RequestData(
   errs << "piece " << piece << " out of " << numPieces << endl;
 #endif
 
-  int actualTimeStep = 0;
+  this->ActualTimeStep = 0;
   double requestedTimeValue = 0.0;
   if (outInfo->Has(vtkStreamingDemandDrivenPipeline::UPDATE_TIME_STEP()))
   {
     requestedTimeValue = outInfo->Get(vtkStreamingDemandDrivenPipeline::UPDATE_TIME_STEP());
 
-    double eps = 0.0001 * requestedTimeValue;
-    for (int i=0; i< this->NumLoadSteps; i++)
+    for (int i=0; i< this->NumberOfTimeSteps; i++)
     {
-      if (fabs(requestedTimeValue - this->LoadStepScalingFactors[i]) < eps)
+      if (fabs(requestedTimeValue - this->TimeStepValues[i]) < this->TimeStepTolerance)
       {
-	actualTimeStep = i;
-	//cout << "actualTimeStep = " << actualTimeStep << endl;
+	this->ActualTimeStep = i;
+	//cout << "actualTimeStep = " << this->ActualTimeStep << endl;
 	break;
       }
     }
     output->GetInformation()->Set(vtkDataObject::DATA_TIME_STEP(), requestedTimeValue);
   }
   cout << "requestedTimeValue "  << requestedTimeValue << endl;
-  cout << "actualTimeStep "  << actualTimeStep << endl;
+  cout << "actualTimeStep "  << this->ActualTimeStep << endl;
 
   vtkDebugMacro(<< "getting piece " << piece << " out of " << numPieces << " pieces");
   if (!this->FileName)
@@ -535,14 +542,14 @@ int vtkSalvusHDF5Reader::RequestData(
 
   if(this->ModelName == 0) // Elastic
   {
-    for(int i=1; i <=6; i++)
+    for(int i=0; i <6; i++)
     {
-      if(GetPointArrayStatus(varnames[i].c_str())) // is variable enabled to be read?
+      if(GetPointArrayStatus(Elastic_varnames[i].c_str())) // is variable enabled to be read?
       {
         vtkFloatArray *data = vtkFloatArray::New(); // destination array
         data->SetNumberOfComponents(1);
         data->SetNumberOfTuples(MyNumber_of_Nodes);
-        data->SetName(varnames[i].c_str());
+        data->SetName(Elastic_varnames[i].c_str());
     
         count[0] = this->NbNodes;
         count[1] = 1;
@@ -558,7 +565,7 @@ int vtkSalvusHDF5Reader::RequestData(
         count[1] = this->NbNodes/125;
         count[2] = 1;
         count[3] = 125;
-        offset[0] = actualTimeStep;
+        offset[0] = this->ActualTimeStep;
         offset[1] = 0;
         offset[2] = 0;
         offset[3] = 0;
@@ -577,6 +584,45 @@ int vtkSalvusHDF5Reader::RequestData(
   }
   else // Acoustic
   {
+    for(int i=0; i < 1; i++)
+    {
+      if(GetPointArrayStatus(Acoustic_varnames[i].c_str())) // is variable enabled to be read?
+      {
+        vtkFloatArray *data = vtkFloatArray::New(); // destination array
+        data->SetNumberOfComponents(1);
+        data->SetNumberOfTuples(MyNumber_of_Nodes);
+        data->SetName(Acoustic_varnames[i].c_str());
+    
+        count[0] = this->NbNodes;
+        count[1] = 1;
+        memspace = H5Screate_simple(2, count, NULL);
+
+        offset[0] = 0;
+        offset[1] = 0;
+        count[0] = this->NbNodes;
+        count[1] = 1;
+        H5Sselect_hyperslab (memspace, H5S_SELECT_SET, offset, NULL, count, NULL);
+
+        count[0] = 1; // timestep slice
+        count[1] = this->NbNodes/125;
+        count[2] = 1;
+        count[3] = 125;
+        offset[0] = this->ActualTimeStep;
+        offset[1] = 0;
+        offset[2] = 0;
+        offset[3] = 0;
+        dataspace = H5Dget_space(data_id);
+        H5Sselect_hyperslab(dataspace, H5S_SELECT_SET, offset, NULL, count, NULL);
+
+        if(numPieces == 1)
+        {
+          H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT,
+            static_cast<vtkFloatArray *>(data)->GetPointer(0));
+          output->GetPointData()->AddArray(data);
+          data->FastDelete();
+        }
+      }
+    }
   }
   H5Dclose(data_id);
   H5Gclose(volume_id);
@@ -607,39 +653,87 @@ void vtkSalvusHDF5Reader::DisablePointArray(const char* name)
 
 void vtkSalvusHDF5Reader::EnableAllPointArrays()
 {
-  this->PointDataArraySelection->EnableAllArrays();
+  this->ELASTIC_PointDataArraySelection->EnableAllArrays();
 }
 
 void vtkSalvusHDF5Reader::DisableAllPointArrays()
 {
-  this->PointDataArraySelection->DisableAllArrays();
+  this->ELASTIC_PointDataArraySelection->DisableAllArrays();
 }
 
 const char* vtkSalvusHDF5Reader::GetPointArrayName(int index)
 {
-  return this->PointDataArraySelection->GetArrayName(index);
+  return this->ELASTIC_PointDataArraySelection->GetArrayName(index);
 }
 
 int vtkSalvusHDF5Reader::GetPointArrayStatus(const char* name)
 {
-  return this->PointDataArraySelection->ArrayIsEnabled(name);
+  return this->ELASTIC_PointDataArraySelection->ArrayIsEnabled(name);
 }
 
 void vtkSalvusHDF5Reader::SetPointArrayStatus(const char* name, int status)
 {
   if(status)
     {
-    this->PointDataArraySelection->EnableArray(name);
+    this->ELASTIC_PointDataArraySelection->EnableArray(name);
     }
   else
     {
-    this->PointDataArraySelection->DisableArray(name);
+    this->ELASTIC_PointDataArraySelection->DisableArray(name);
     }
 }
 
 int vtkSalvusHDF5Reader::GetNumberOfPointArrays()
 {
-  return this->PointDataArraySelection->GetNumberOfArrays();
+  return this->ELASTIC_PointDataArraySelection->GetNumberOfArrays();
+}
+
+/*******************************************************/
+void vtkSalvusHDF5Reader::Enable_Acoustic_PointArray(const char* name)
+{
+  this->Set_Acoustic_PointArrayStatus(name, 1);
+}
+
+void vtkSalvusHDF5Reader::Disable_Acoustic_PointArray(const char* name)
+{
+  this->Set_Acoustic_PointArrayStatus(name, 0);
+}
+
+void vtkSalvusHDF5Reader::EnableAll_Acoustic_PointArrays()
+{
+  this->ACOUSTIC_PointDataArraySelection->EnableAllArrays();
+}
+
+void vtkSalvusHDF5Reader::DisableAll_Acoustic_PointArrays()
+{
+  this->ACOUSTIC_PointDataArraySelection->DisableAllArrays();
+}
+
+const char* vtkSalvusHDF5Reader::Get_Acoustic_PointArrayName(int index)
+{
+  return this->ACOUSTIC_PointDataArraySelection->GetArrayName(index);
+}
+
+int vtkSalvusHDF5Reader::Get_Acoustic_PointArrayStatus(const char* name)
+{
+  return this->ACOUSTIC_PointDataArraySelection->ArrayIsEnabled(name);
+}
+
+void vtkSalvusHDF5Reader::Set_Acoustic_PointArrayStatus(const char* name, int status)
+{
+  if(status)
+    {
+    this->ACOUSTIC_PointDataArraySelection->EnableArray(name);
+    }
+  else
+    {
+    this->ACOUSTIC_PointDataArraySelection->DisableArray(name);
+    }
+}
+
+int vtkSalvusHDF5Reader::GetNumberOf_Acoustic_PointArrays()
+{
+  return this->ACOUSTIC_PointDataArraySelection->GetNumberOfArrays();
 }
 
 /*

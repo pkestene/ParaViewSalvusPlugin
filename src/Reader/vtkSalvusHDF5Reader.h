@@ -10,6 +10,8 @@
 #include "SalvusHDF5ReaderModule.h" // for export macro
 #include "vtkUnstructuredGridAlgorithm.h"
 
+#include <vector> // for vector
+
 class vtkDataArraySelection;
 
 class SALVUSHDF5READER_EXPORT vtkSalvusHDF5Reader : public vtkUnstructuredGridAlgorithm
@@ -27,17 +29,26 @@ public:
   vtkGetMacro(NbCells,int);
   vtkGetMacro(NbNodes,int);
 
-  vtkGetObjectMacro(PointDataArraySelection, vtkDataArraySelection);
+  vtkGetObjectMacro(ELASTIC_PointDataArraySelection, vtkDataArraySelection);
+  vtkGetObjectMacro(ACOUSTIC_PointDataArraySelection, vtkDataArraySelection);
 
   int GetNumberOfPointArrays();
   const char* GetPointArrayName(int index);
   int GetPointArrayStatus(const char* name);
   void SetPointArrayStatus(const char* name, int status);
-
   void DisableAllPointArrays();  
   void EnableAllPointArrays();
   void DisablePointArray(const char* name);  
   void EnablePointArray(const char* name);
+  
+  int GetNumberOf_Acoustic_PointArrays();
+  const char* Get_Acoustic_PointArrayName(int index);
+  int Get_Acoustic_PointArrayStatus(const char* name);
+  void Set_Acoustic_PointArrayStatus(const char* name, int status);
+  void DisableAll_Acoustic_PointArrays();  
+  void EnableAll_Acoustic_PointArrays();
+  void Disable_Acoustic_PointArray(const char* name);  
+  void Enable_Acoustic_PointArray(const char* name);
 
 protected:
   vtkSalvusHDF5Reader();
@@ -53,7 +64,8 @@ protected:
   int CanReadFile(const char* fname);
   
   char *FileName;
-  vtkDataArraySelection* PointDataArraySelection;
+  vtkDataArraySelection* ELASTIC_PointDataArraySelection;
+  vtkDataArraySelection* ACOUSTIC_PointDataArraySelection;
   int NbNodes;
   int NbCells;
  private:
@@ -61,8 +73,11 @@ protected:
   void operator=(const vtkSalvusHDF5Reader&) = delete;
 
   int ModelName; // 0 = ELASTIC, 1 = ACOUSTIC
-  double *LoadStepScalingFactors;
-  int NumLoadSteps;
+  std::vector<double> TimeStepValues;
+  int NumberOfTimeSteps;
+  int TimeStep;
+  int ActualTimeStep;
+  double TimeStepTolerance;
 };
 
 #endif

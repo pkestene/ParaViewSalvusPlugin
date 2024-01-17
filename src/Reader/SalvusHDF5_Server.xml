@@ -20,20 +20,43 @@
      </StringVectorProperty>
 
      <StringVectorProperty
-        name="PointArrayStatus"
+        name="ElasticPointArrayStatus"
         command="SetPointArrayStatus"
         number_of_elements="0"
         repeat_command="1"
         number_of_elements_per_command="2"
         element_types="2 0"
         information_property="PointArrayInfo"
-        label="Point Arrays">>
+        label="Elastic Point Arrays">
        <ArraySelectionDomain name="array_list">
           <RequiredProperties>
              <Property name="PointArrayInfo" function="ArrayList"/>
           </RequiredProperties>
        </ArraySelectionDomain>
      </StringVectorProperty>
+     
+     <StringVectorProperty
+        name="PointArrayInfo2"
+        information_only="1">
+        <ArraySelectionInformationHelper attribute_name="_Acoustic_Point"/>
+     </StringVectorProperty>
+     
+     <StringVectorProperty
+        name="AcousticPointArrayStatus"
+        command="Set_Acoustic_PointArrayStatus"
+        number_of_elements="0"
+        repeat_command="1"
+        number_of_elements_per_command="2"
+        element_types="2 0"
+        information_property="PointArrayInfo2"
+        label="Acoustic Point Arrays">
+       <ArraySelectionDomain name="array_list">
+          <RequiredProperties>
+             <Property name="PointArrayInfo2" function="ArrayList"/>
+          </RequiredProperties>
+       </ArraySelectionDomain>
+     </StringVectorProperty>
+     
 
 	<DoubleVectorProperty
 	name="TimestepValues"
