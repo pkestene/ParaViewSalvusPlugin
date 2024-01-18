@@ -12,6 +12,9 @@
 
 #include <vector> // for vector
 
+#define ELASTIC 0
+#define ACOUSTIC 1
+
 class vtkDataArraySelection;
 
 class SALVUSHDF5READER_EXPORT vtkSalvusHDF5Reader : public vtkUnstructuredGridAlgorithm
