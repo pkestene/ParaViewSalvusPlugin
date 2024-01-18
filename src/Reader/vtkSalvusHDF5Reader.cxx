@@ -595,7 +595,6 @@ int vtkSalvusHDF5Reader::RequestData(
 #ifdef PARALLEL_DEBUG
           errs << "reading ELASTIC(" << vname << ") data0 of size " << this->NbNodes << std::endl;
           errs << "copy-ing into data of size " << maxId - minId + 1 << std::endl;
-          errs << "datarange = " << range[0] << ", " << range[1] << std::endl;
 #endif
           }
         data->GetRange(range);
