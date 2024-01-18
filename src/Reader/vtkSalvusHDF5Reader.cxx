@@ -260,7 +260,7 @@ int vtkSalvusHDF5Reader::RequestData(
   fname << "/tmp/out." << piece << ".txt" << ends;
 #endif
   ofstream errs;
-  errs.open(fname.str().c_str(),ios::app);
+  errs.open(fname.str().c_str(),ios::ate);
   errs << "piece " << piece << " out of " << numPieces << endl;
 #endif
 
@@ -597,8 +597,10 @@ int vtkSalvusHDF5Reader::RequestData(
           errs << "copy-ing into data of size " << maxId - minId + 1 << std::endl;
 #endif
           }
+#ifdef PARALLEL_DEBUG
         data->GetRange(range);
         std::cerr << "datarange = " << range[0] << ", " << range[1] << std::endl;
+#endif
         output->GetPointData()->AddArray(data);
         data->FastDelete();
       }
