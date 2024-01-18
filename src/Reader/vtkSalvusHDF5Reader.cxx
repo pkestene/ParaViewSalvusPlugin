@@ -498,7 +498,7 @@ int vtkSalvusHDF5Reader::RequestData(
   count[0] = this->NbNodes/125;
   count[1] = 125;
   count[2] = 3;
-  offset[0] = 0; // read the array starting at minId and read only MyNumber_of_Nodes items
+  offset[0] = 0;
   offset[1] = 0;
   offset[2] = 0;
 
@@ -517,8 +517,7 @@ int vtkSalvusHDF5Reader::RequestData(
     // void *memcpy(void *dest, const void *src, size_t n);
     memcpy(static_cast<vtkFloatArray *>(coords)->GetPointer(0),
            &coords0[minId*3], 
-           sizeof(float) * 3 * (maxId - minId + 1)
-          );
+           sizeof(float) * 3 * MyNumber_of_Nodes);
     delete [] coords0;
     }
   H5Dclose(coords_id);
@@ -528,9 +527,6 @@ int vtkSalvusHDF5Reader::RequestData(
   coords->FastDelete();
   output->SetPoints(points);
   points->FastDelete();
-
-  H5E_auto_t func;
-  void *client_data;
 
   this->UpdateProgress(0.70);
 
@@ -588,18 +584,20 @@ int vtkSalvusHDF5Reader::RequestData(
           {
           status = H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT, data0);
           // void *memcpy(void *dest, const void *src, size_t n);
-          memcpy(static_cast<vtkFloatArray *>(data)->GetPointer(0),
-                 &data0[minId*3], 
-                 sizeof(float) * (maxId - minId + 1));
-
+          if(status >= 0)
+            memcpy(static_cast<vtkFloatArray *>(data)->GetPointer(0),
+                 &data0[minId], 
+                 sizeof(float) * MyNumber_of_Nodes);
+          else
+            std::cerr << "failure to H5Dread " << vname << std::endl;
 #ifdef PARALLEL_DEBUG
           errs << "reading ELASTIC(" << vname << ") data0 of size " << this->NbNodes << std::endl;
-          errs << "copy-ing into data of size " << maxId - minId + 1 << std::endl;
+          errs << "copy-ing into data of size " << MyNumber_of_Nodes << std::endl;
 #endif
           }
 #ifdef PARALLEL_DEBUG
         data->GetRange(range);
-        std::cerr << "datarange = " << range[0] << ", " << range[1] << std::endl;
+        errs << "datarange = " << range[0] << ", " << range[1] << std::endl;
 #endif
         output->GetPointData()->AddArray(data);
         data->FastDelete();
@@ -652,11 +650,11 @@ int vtkSalvusHDF5Reader::RequestData(
           status = H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT, data0);
           // void *memcpy(void *dest, const void *src, size_t n);
           memcpy(static_cast<vtkFloatArray *>(data)->GetPointer(0),
-                 &data0[minId*3], 
-                 sizeof(float) * (maxId - minId + 1));
+                 &data0[minId], 
+                 sizeof(float) * MyNumber_of_Nodes);
 #ifdef PARALLEL_DEBUG
           errs << "reading ACOUSTIC(" << vname << ") data0 of size " << this->NbNodes << std::endl;
-          errs << "copy-ing into data of size " << maxId - minId + 1 << std::endl;
+          errs << "copy-ing into data of size " << MyNumber_of_Nodes << std::endl;
 #endif
         }
         output->GetPointData()->AddArray(data);
