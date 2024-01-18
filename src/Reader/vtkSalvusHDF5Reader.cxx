@@ -609,14 +609,13 @@ int vtkSalvusHDF5Reader::RequestData(
     for(int i=0; i < Acoustic_varnames.size(); i++)
     {
       const char *vname = Acoustic_varnames[i].c_str();
-      if(GetPointArrayStatus(vname)) // is variable enabled to be read?
+      if(Get_Acoustic_PointArrayStatus(vname)) // is variable enabled to be read?
       {
         double range[2];
         vtkFloatArray *data = vtkFloatArray::New(); // destination array
         data->SetNumberOfComponents(1);
         data->SetNumberOfTuples(MyNumber_of_Nodes);
         data->SetName(vname);
-        data->Fill(-1.0);
     
         count[0] = this->NbNodes;
         count[1] = 1;
@@ -643,7 +642,6 @@ int vtkSalvusHDF5Reader::RequestData(
         {
           status = H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT,
             static_cast<vtkFloatArray *>(data)->GetPointer(0));
-
         }
         else
         {
@@ -657,6 +655,10 @@ int vtkSalvusHDF5Reader::RequestData(
           errs << "copy-ing into data of size " << MyNumber_of_Nodes << std::endl;
 #endif
         }
+#ifdef PARALLEL_DEBUG
+        data->GetRange(range);
+        errs << "datarange = " << range[0] << ", " << range[1] << std::endl;
+#endif
         output->GetPointData()->AddArray(data);
         data->FastDelete();
       }
