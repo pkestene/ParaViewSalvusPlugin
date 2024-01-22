@@ -7,6 +7,7 @@ paraview.compatibility.minor = 12
 from paraview.simple import *
 #### disable automatic camera reset on 'Show'
 paraview.simple._DisableFirstRenderCameraReset()
+LoadPlugin("/users/jfavre/Projects/Salvus/ParaViewSalvusPlugin/build512/lib64/paraview-5.12/plugins/pvSalvusHDF5Reader/pvSalvusHDF5Reader.so", ns=globals())
 
 materialLibrary1 = GetMaterialLibrary()
 
@@ -226,7 +227,7 @@ animationScene1.PlayMode = 'Snap To TimeSteps'
 SetActiveSource(elastic)
 # ----------------------------------------------------------------
 
-SaveAnimation('/users/jfavre/Projects/Salvus/animation.png', layout1, 16, SaveAllViews=1,
+SaveAnimation('/users/jfavre/Projects/Salvus/animation.png', layout1, SaveAllViews=1,
     ImageResolution=[1280, 720],
     FrameWindow=[0, 10])
 
