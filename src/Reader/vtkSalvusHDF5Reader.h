@@ -10,7 +10,9 @@
 #include "SalvusHDF5ReaderModule.h" // for export macro
 #include "vtkUnstructuredGridAlgorithm.h"
 
-#include <vector> // for vector
+#include <vector>
+#include <string>
+
 
 #define ELASTIC 0
 #define ACOUSTIC 1
@@ -71,10 +73,14 @@ protected:
   vtkDataArraySelection* ACOUSTIC_PointDataArraySelection;
   int NbNodes;
   int NbCells;
+  bool Is_Variable_Enabled(const char* vname);
+  void Load_Variables(vtkUnstructuredGrid* output, const int numPieces, const int, const int, long int data_id);
+  
  private:
   vtkSalvusHDF5Reader(const vtkSalvusHDF5Reader&) = delete;
   void operator=(const vtkSalvusHDF5Reader&) = delete;
-
+  
+  std::vector<std::string> varnames[2];
   int ModelName; // 0 = ELASTIC, 1 = ACOUSTIC
   std::vector<double> TimeStepValues;
   int NumberOfTimeSteps;

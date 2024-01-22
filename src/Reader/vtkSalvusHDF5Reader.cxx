@@ -22,10 +22,8 @@
 #include <algorithm>
 #include <vector>
 #include <string>
-
-using namespace std;
-
 #include <hdf5.h>
+using namespace std;
 
 #include "vtkMPICommunicator.h"
 #include "vtkMPIController.h"
@@ -33,60 +31,6 @@ using namespace std;
 #include <set>
 #include <sstream>
 hid_t    file_id;
-hsize_t  array_dim[2];
-
-herr_t file_info(hid_t loc_id, const char *name, void *opdata)
-{
-    H5G_stat_t statbuf;
-    hsize_t dimsf[2];
-    hid_t filespace;
-    hid_t root_id, mesh_id, dataset_id;
-    int N, *MeshSizes = (int *)opdata;
-    /*
-     * Get type of the object and display its name and type.
-     * The name of the object is passed to this function by
-     * the Library. Some magic :-)
-     */
-
-    H5Gget_objinfo(loc_id, name, 0, &statbuf);
-    switch (statbuf.type) {
-    case H5G_GROUP:
-         printf(" Object with name %s is a group\n", name);
-         break;
-    case H5G_DATASET:
-
-      root_id = H5Gopen(loc_id, "/", H5P_DEFAULT);
-
-      mesh_id = H5Gopen(root_id, "Mesh", H5P_DEFAULT);
-
-      dataset_id = H5Dopen(mesh_id, "Elements", H5P_DEFAULT);
-
-      filespace = H5Dget_space(dataset_id);
-      H5Sget_simple_extent_dims(filespace, dimsf, NULL);
-      N = dimsf[0];
-      H5Sclose(filespace);
- /*
-         if (N == MeshSizes[0])
-           printf("dataset for nodes");
-         else if(N == MeshSizes[1])
-           printf("dataset for cells");
-         else
-           printf("bad size on dataset");
-*/
-     H5Dclose(dataset_id);
-     H5Gclose(mesh_id);
-     H5Gclose(root_id);
-     //printf(" Object with name %s is a dataset of size %d\n", name, N);
-
-         break;
-    case H5G_TYPE:
-         printf(" Object with name %s is a named datatype\n", name);
-         break;
-    default:
-         printf(" Unable to identify an object ");
-    }
-    return 0;
-}
 
 vtkStandardNewMacro(vtkSalvusHDF5Reader);
 
@@ -118,6 +62,9 @@ vtkSalvusHDF5Reader::vtkSalvusHDF5Reader()
   this->TimeStep = 0;
   this->ActualTimeStep = 0;
   this->TimeStepTolerance = 1E-6;
+  
+  this->varnames[0] = {"stress_xx", "stress_yy", "stress_zz", "stress_yz", "stress_xz", "stress_xy"};
+  this->varnames[1] = {"phi_tt"};
 }
  
 vtkSalvusHDF5Reader::~vtkSalvusHDF5Reader()
@@ -130,9 +77,6 @@ vtkSalvusHDF5Reader::~vtkSalvusHDF5Reader()
   this->ACOUSTIC_PointDataArraySelection->Delete();
   this->ACOUSTIC_PointDataArraySelection = nullptr;
 }
-
-static std::vector<string> Elastic_varnames = {"stress_xx", "stress_yy", "stress_zz", "stress_yz", "stress_xz", "stress_xy"};
-static std::vector<string> Acoustic_varnames = {"phi_tt"};
 
 int vtkSalvusHDF5Reader::RequestInformation(
                          vtkInformation *vtkNotUsed(request),
@@ -208,9 +152,9 @@ int vtkSalvusHDF5Reader::RequestInformation(
         this->NumberOfTimeSteps = dimsf[0];
         H5Dclose(phi_tt_id);
       }
-      for(auto varn : Elastic_varnames)
+      for(auto varn : this->varnames[0])
         this->ELASTIC_PointDataArraySelection->AddArray(varn.c_str());
-      for(auto varn : Acoustic_varnames)
+      for(auto varn : this->varnames[1])
         this->ACOUSTIC_PointDataArraySelection->AddArray(varn.c_str());
 
       this->TimeStepValues.assign(this->NumberOfTimeSteps, 0.0);
@@ -294,7 +238,7 @@ int vtkSalvusHDF5Reader::RequestData(
   file_id = H5Fopen(this->FileName, H5F_ACC_RDONLY, H5P_DEFAULT);
   root_id = H5Gopen(file_id, "/", H5P_DEFAULT);
   volume_id = H5Gopen(root_id, "volume", H5P_DEFAULT);
-  if(this->ModelName == ELASTIC)
+  if(this->ModelName == 0)
   {
     mesh_id   = H5Dopen(root_id, "connectivity_ELASTIC", H5P_DEFAULT);
     coords_id = H5Dopen(root_id, "coordinates_ELASTIC", H5P_DEFAULT);
@@ -530,147 +474,9 @@ int vtkSalvusHDF5Reader::RequestData(
 
   this->UpdateProgress(0.70);
 
-  float *data0 = nullptr;
-  if(numPieces > 1)
-    {
-    data0 = new float[this->NbNodes]; // temporary storage
-#ifdef PARALLEL_DEBUG
-  errs << "allocating data0 of size " << this->NbNodes << std::endl;
-#endif
-    }
-  if(this->ModelName == ELASTIC)
-  {
-    for(int i=0; i < Elastic_varnames.size(); i++)
-    {
-      double range[2];
-      const char *vname = Elastic_varnames[i].c_str();
-      if(GetPointArrayStatus(vname)) // is variable enabled to be read?
-      {
-        vtkFloatArray *data = vtkFloatArray::New(); // destination array
-        data->SetNumberOfComponents(1);
-        data->SetNumberOfTuples(MyNumber_of_Nodes);
-        data->SetName(vname);
+  // following code will read either ELASTIC or ACOUSTIC data depending on how variable this->ModelName is set
+  this->Load_Variables(output, numPieces, MyNumber_of_Nodes, minId, data_id);
 
-        count[0] = this->NbNodes;
-        count[1] = 1;
-        memspace = H5Screate_simple(2, count, NULL);
-
-        offset[0] = 0;
-        offset[1] = 0;
-        count[0] = this->NbNodes;
-        count[1] = 1;
-        H5Sselect_hyperslab (memspace, H5S_SELECT_SET, offset, NULL, count, NULL);
-
-        count[0] = 1; // timestep slice
-        offset[0] = this->ActualTimeStep;
-        
-        count[1] = this->NbNodes/125;
-        offset[1] = 0;
-                
-        count[2] = 1;
-        offset[2] = i; // which variable
-                
-        count[3] = 125; // how many actual points? 125 instead of 128?
-        offset[3] = 0;
-        dataspace = H5Dget_space(data_id);
-        H5Sselect_hyperslab(dataspace, H5S_SELECT_SET, offset, NULL, count, NULL);
-
-        if(numPieces == 1)
-          {
-          status = H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT,
-            static_cast<vtkFloatArray *>(data)->GetPointer(0));
-          }
-        else
-          {
-          status = H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT, data0);
-          // void *memcpy(void *dest, const void *src, size_t n);
-          if(status >= 0)
-            memcpy(static_cast<vtkFloatArray *>(data)->GetPointer(0),
-                 &data0[minId], 
-                 sizeof(float) * MyNumber_of_Nodes);
-          else
-            std::cerr << "failure to H5Dread " << vname << std::endl;
-#ifdef PARALLEL_DEBUG
-          errs << "reading ELASTIC(" << vname << ") data0 of size " << this->NbNodes << std::endl;
-          errs << "copy-ing into data of size " << MyNumber_of_Nodes << std::endl;
-#endif
-          }
-#ifdef PARALLEL_DEBUG
-        data->GetRange(range);
-        errs << "datarange = " << range[0] << ", " << range[1] << std::endl;
-#endif
-        output->GetPointData()->AddArray(data);
-        data->FastDelete();
-      }
-    }
-  }
-  else // Acoustic
-  {
-    for(int i=0; i < Acoustic_varnames.size(); i++)
-    {
-      const char *vname = Acoustic_varnames[i].c_str();
-      if(Get_Acoustic_PointArrayStatus(vname)) // is variable enabled to be read?
-      {
-        double range[2];
-        vtkFloatArray *data = vtkFloatArray::New(); // destination array
-        data->SetNumberOfComponents(1);
-        data->SetNumberOfTuples(MyNumber_of_Nodes);
-        data->SetName(vname);
-    
-        count[0] = this->NbNodes;
-        count[1] = 1;
-        memspace = H5Screate_simple(2, count, NULL);
-
-        offset[0] = 0;
-        offset[1] = 0;
-        count[0] = this->NbNodes;
-        count[1] = 1;
-        H5Sselect_hyperslab (memspace, H5S_SELECT_SET, offset, NULL, count, NULL);
-
-        count[0] = 1; // timestep slice
-        count[1] = this->NbNodes/125;
-        count[2] = 1;
-        count[3] = 125;
-        offset[0] = this->ActualTimeStep;
-        offset[1] = 0;
-        offset[2] = i;
-        offset[3] = 0;
-        dataspace = H5Dget_space(data_id);
-        H5Sselect_hyperslab(dataspace, H5S_SELECT_SET, offset, NULL, count, NULL);
-
-        if(numPieces == 1)
-        {
-          status = H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT,
-            static_cast<vtkFloatArray *>(data)->GetPointer(0));
-        }
-        else
-        {
-          status = H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT, data0);
-          // void *memcpy(void *dest, const void *src, size_t n);
-          memcpy(static_cast<vtkFloatArray *>(data)->GetPointer(0),
-                 &data0[minId], 
-                 sizeof(float) * MyNumber_of_Nodes);
-#ifdef PARALLEL_DEBUG
-          errs << "reading ACOUSTIC(" << vname << ") data0 of size " << this->NbNodes << std::endl;
-          errs << "copy-ing into data of size " << MyNumber_of_Nodes << std::endl;
-#endif
-        }
-#ifdef PARALLEL_DEBUG
-        data->GetRange(range);
-        errs << "datarange = " << range[0] << ", " << range[1] << std::endl;
-#endif
-        output->GetPointData()->AddArray(data);
-        data->FastDelete();
-      }
-    }
-  }
-  if((numPieces > 1) && (data0 != nullptr))
-  {
-    delete [] data0;
-#ifdef PARALLEL_DEBUG
-  errs << "deleting data0" << std::endl;
-#endif
-  }
   H5Dclose(data_id);
   H5Gclose(volume_id);
   H5Gclose(root_id);
@@ -686,6 +492,80 @@ int vtkSalvusHDF5Reader::RequestData(
 
   //output.ShallowCopy(cleaner.GetOutput())
   return 1;
+}
+
+bool vtkSalvusHDF5Reader::Is_Variable_Enabled(const char* vname)
+{
+  if(this->ModelName == ELASTIC)
+    return GetPointArrayStatus(vname);
+  else
+    return Get_Acoustic_PointArrayStatus(vname);
+}
+
+void vtkSalvusHDF5Reader::Load_Variables(vtkUnstructuredGrid* output, const int numPieces, const int MyNumber_of_Nodes, const int minId, long int dset_id)
+{
+  hsize_t count[4], offset[4];
+  hid_t memspace, dataspace, data_id = static_cast<hid_t >(dset_id);
+  herr_t status;
+  
+  float *data0 = nullptr;
+  
+  if(numPieces > 1)
+  {
+    data0 = new float[this->NbNodes]; // temporary storage
+  }
+  for(int i=0; i < this->varnames[this->ModelName].size(); i++)
+  {
+    const char *vname = this->varnames[this->ModelName][i].c_str();
+    if(this->Is_Variable_Enabled(vname)) // is variable enabled in the ParaView GUI
+    {
+      vtkFloatArray *data = vtkFloatArray::New(); // destination array
+      data->SetNumberOfComponents(1);
+      data->SetNumberOfTuples(MyNumber_of_Nodes);
+      data->SetName(vname);
+    
+      count[0] = this->NbNodes;
+      count[1] = 1;
+      memspace = H5Screate_simple(2, count, NULL);
+
+      offset[0] = 0;
+      offset[1] = 0;
+      count[0] = this->NbNodes;
+      count[1] = 1;
+      H5Sselect_hyperslab (memspace, H5S_SELECT_SET, offset, NULL, count, NULL);
+
+      count[0] = 1; // timestep slice
+      count[1] = this->NbNodes/125;
+      count[2] = 1;
+      count[3] = 125;
+      offset[0] = this->ActualTimeStep;
+      offset[1] = 0;
+      offset[2] = i;
+      offset[3] = 0;
+      dataspace = H5Dget_space(data_id);
+      H5Sselect_hyperslab(dataspace, H5S_SELECT_SET, offset, NULL, count, NULL);
+
+      if(numPieces == 1)
+      {
+        status = H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT,
+            static_cast<vtkFloatArray *>(data)->GetPointer(0));
+      }
+      else
+      {
+        status = H5Dread(data_id, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT, data0);
+          // void *memcpy(void *dest, const void *src, size_t n);
+        memcpy(static_cast<vtkFloatArray *>(data)->GetPointer(0),
+                 &data0[minId], 
+                 sizeof(float) * MyNumber_of_Nodes);
+      }
+      output->GetPointData()->AddArray(data);
+      data->FastDelete();
+    }
+  }
+  if(numPieces > 1)
+  {
+    delete [] data0;
+  }
 }
 
 void vtkSalvusHDF5Reader::EnablePointArray(const char* name)
