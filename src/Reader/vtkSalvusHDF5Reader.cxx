@@ -200,6 +200,8 @@ int vtkSalvusHDF5Reader::RequestData(
   std::ostringstream fname;
 #ifdef __CRAYXC
   fname << "/scratch/snx3000/jfavre/out." << piece << ".txt" << ends;
+#elseif defined(__CRAY_X86_ROME)
+  fname << "/iopsstor/scratch/cscs/jfavre/out." << piece << ".txt" << ends;
 #else
   fname << "/tmp/out." << piece << ".txt" << ends;
 #endif
@@ -238,7 +240,7 @@ int vtkSalvusHDF5Reader::RequestData(
   file_id = H5Fopen(this->FileName, H5F_ACC_RDONLY, H5P_DEFAULT);
   root_id = H5Gopen(file_id, "/", H5P_DEFAULT);
   volume_id = H5Gopen(root_id, "volume", H5P_DEFAULT);
-  if(this->ModelName == 0)
+  if(this->ModelName == ELASTIC)
   {
     mesh_id   = H5Dopen(root_id, "connectivity_ELASTIC", H5P_DEFAULT);
     coords_id = H5Dopen(root_id, "coordinates_ELASTIC", H5P_DEFAULT);
@@ -250,8 +252,9 @@ int vtkSalvusHDF5Reader::RequestData(
     coords_id = H5Dopen(root_id, "coordinates_ACOUSTIC", H5P_DEFAULT);
     data_id   = H5Dopen(volume_id, "phi_tt", H5P_DEFAULT);
   }
-
-  printf("this->NbNodes = %d, this->NbCells = %d\n", this->NbNodes, this->NbCells);
+#ifdef PARALLEL_DEBUG
+  errs <<"this->NbNodes = " << this->NbNodes << ", this->NbCells = " << this->NbCells << std::endl;
+#endif
 
 // here we allocate the final list necessary for VTK. It includes an extra
 // integer for every hexahedra to say that the next cell contains 8 nodes.
@@ -282,13 +285,13 @@ int vtkSalvusHDF5Reader::RequestData(
       MyNumber_of_Cells = this->NbCells - (numPieces-1) * load;
     }
   }
+#ifdef PARALLEL_DEBUG
+  errs << "CPU " << piece << ": allocating " << MyNumber_of_Cells  << " list of elements of size " << "*9*" << sizeof(vtkIdType) << " bytes = " << MyNumber_of_Cells * 9 *sizeof(vtkIdType) << " bytes\n";
+#endif
   vtkIdTypeArray *vtklistcells = vtkIdTypeArray::New();
   vtklistcells->SetNumberOfValues(MyNumber_of_Cells * (8 + 1));
   vtkfinal_id_list = vtklistcells->GetPointer(0);
 
-#ifdef PARALLEL_DEBUG
-  errs << "CPU " << piece << ": allocating " << MyNumber_of_Cells  << " list of elements of size " << "*9*" << sizeof(vtkIdType) << " bytes = " << MyNumber_of_Cells * 9 *sizeof(vtkIdType) << " bytes\n";
-#endif
   count[0] = MyNumber_of_Cells;
   count[1] = 8 + 1;
   memspace = H5Screate_simple(2, count, NULL);
@@ -350,9 +353,9 @@ int vtkSalvusHDF5Reader::RequestData(
   }
   else
   {
-    vtkIdTypeArray* originalPtIds = vtkIdTypeArray::New();
-    originalPtIds->SetNumberOfComponents(1);
-    originalPtIds->SetName("GlobalNodeIds");
+    //vtkIdTypeArray* originalPtIds = vtkIdTypeArray::New();
+    //originalPtIds->SetNumberOfComponents(1);
+    //originalPtIds->SetName("GlobalNodeIds");
 
     for(int i= 0 ; i< MyNumber_of_Cells; i++)
     {
@@ -376,29 +379,19 @@ int vtkSalvusHDF5Reader::RequestData(
     }
 
     MyNumber_of_Nodes = maxId - minId + 1;
-    originalPtIds->SetNumberOfTuples(MyNumber_of_Nodes);
+    //originalPtIds->SetNumberOfTuples(MyNumber_of_Nodes);
 #ifdef PARALLEL_DEBUG
-  errs << __LINE__ << ": allocating " << MyNumber_of_Nodes << " OriginalPointIds of size " <<  sizeof(vtkIdType) << " bytes = " << MyNumber_of_Nodes *sizeof(vtkIdType) << " bytes\n";
+  //errs << __LINE__ << ": allocating " << MyNumber_of_Nodes << " OriginalPointIds of size " <<  sizeof(vtkIdType) << " bytes = " << MyNumber_of_Nodes *sizeof(vtkIdType) << " bytes\n";
 #endif
-    for(int i= 0 ; i< MyNumber_of_Nodes; i++)
-    {
-      originalPtIds->SetTuple1(i, minId+i);
-    }
-    output->GetPointData()->SetGlobalIds(originalPtIds);
-    originalPtIds->FastDelete();
+    //for(int i= 0 ; i< MyNumber_of_Nodes; i++)
+    //{
+      //originalPtIds->SetTuple1(i, minId+i);
+    //}
+    //output->GetPointData()->SetGlobalIds(originalPtIds);
+    //originalPtIds->FastDelete();
   }
 
-/*/ control print-out
-  for(int i= 0 ; i < 10; i++)
-    {
-    cerr << i << ": ";
-    for(int j = 0; j < 9; j++)
-      {
-      cerr << *(vtkfinal_id_list+9*i+j) << ", " ;
-      }
-    cerr << "\n";
-    }
-/*/
+
   vtkCellArray *cells = vtkCellArray::New();
 
   cells->SetCells(MyNumber_of_Cells, vtklistcells);
